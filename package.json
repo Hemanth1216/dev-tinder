@@ -1,0 +1,15 @@
+{
+  "name": "dev-tinder-be",
+  "version": "1.0.0",
+  "description": "Namaste Node JS - Tinder for devs",
+  "main": "index.js",
+  "scripts": {
+    "start": "node src/app.js",
+    "dev": "nodemon src/app.js"
+  },
+  "author": "Hemanth",
+  "license": "ISC",
+  "dependencies": {
+    "express": "^5.2.1"
+  }
+}
