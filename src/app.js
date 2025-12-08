@@ -1,4 +1,8 @@
 const express = require("express");
+const bcrypt = require('bcrypt');
+const validator = require('validator');
+const jwt = require('jsonwebtoken');
+const cookieParser = require('cookie-parser');
 const connectDB = require("./middlewares/database");
 const { authAdmin } = require("./middlewares/authAdmin");
 const User = require("./models/user");
@@ -7,49 +11,49 @@ const app = express();
 
 // express middleware to convert JSON to JS object
 app.use(express.json());
-
-// middleware to check admin authentication
-app.use("/admin", (req, res, next) => {
-  console.log("In admin auth check");
-  const authenticated = true;
-  if (!authenticated) {
-    res.status(401).send("Unauthorised request");
-  } else {
-    console.log("In auth check before next");
-    next();
-  }
-});
+app.use(cookieParser());
 
 app.get("/hello/:name/:id", (req, res) => {
   res.send(req.params);
 });
 
-// middleware to check admin authentication using utils folder
-app.get(
-  "/test",
-  authAdmin,
-  (req, res, next) => {
-    console.log("in 1");
-    next();
-  },
-  (req, res) => {
-    console.log("in 2");
-    res.send("From 2");
-  }
-);
-
-app.get("/admin/getData", (req, res) => {
-  res.send("This is all the data about admin");
-});
-
 // User API calls START
 app.post('/signup', async (req, res) => {
-    const user = new User(req.body);
+    // validate - use utils/helpers function
     try {
+        // encrypt
+        const encryptedPassword = await bcrypt.hash(req.body?.password, 5);
+        const payload = {...(req.body ?? {}), password: encryptedPassword};
+        const user = new User(payload);
         await user.save();
         res.send("User created successfully");
-    } catch {
-        res.status(400).send("unable to create user due to bad details");
+    } catch (err) {
+        res.status(500).send(err.message);
+    }
+})
+
+app.post('/login', async (req, res) => {
+    try{
+        const {email, password} = req.body;
+        if(!validator.isEmail(email)) {
+            throw new Error("email is not valid");
+        }
+        const user = await User.findOne( {email: email} );
+        if(!user) {
+            throw new Error("Invalid credentials");
+        }
+        const isPasswordCorrect = await bcrypt.compare(password, user.password);
+        if(isPasswordCorrect) {
+            // create a jwt token
+            const token = await jwt.sign({ _id: user._id}, "devtinder@123");
+            // set token to cookie
+            res.cookie("token", token);
+            res.send("Login successfull!!!");
+        } else {
+            throw new Error("Invalid credentials");
+        }
+    } catch(err) {
+        res.status(400).send(err.message);
     }
 })
 
@@ -94,18 +98,36 @@ app.delete('/user', async (req, res) => {
     }
 })
 
-app.patch('/user', async (req, res) => {
-    const userId = req.body.userId;
+app.patch('/user/:userId', async (req, res) => {
+    const userId = req.params.userId;
     const body = req.body;
+    const allowedChanges = ["age", "gender", "description", "skills", "photoUrl"];
+    const isUpdateAllowed = Object.keys(body).every(key => allowedChanges.includes(key));
     try {
-        const updatedUser = await User.findByIdAndUpdate(userId, body, {returnDocument: 'after'});
+        if(!isUpdateAllowed) {
+            throw new Error("Update is not allowed for few keys");
+        }
+        const updatedUser = await User.findByIdAndUpdate(userId, body, 
+                {returnDocument: 'after', runValidators: true});
         res.send(updatedUser);
-    } catch {
-        res.status(500).send("something went wrong");
+    } catch(err) {
+        res.status(400).send(err.message);
     }
 
 })
 
+app.get('/profile', authAdmin, async (req, res) => {
+    try {
+        const user = req.user;
+        res.send(user);
+    } catch(err) {
+        res.status(401).send(err.message);
+    }
+})
+
+app.post('/sendConnectionRequest', authAdmin, (req, res) => {
+    res.send("req sent")
+})
 // User API calls END
 
 connectDB()
